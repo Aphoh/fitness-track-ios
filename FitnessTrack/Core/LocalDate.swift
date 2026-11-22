@@ -37,6 +37,13 @@ public enum LocalDate {
     /// Monday of the week containing `s`.
     public static func weekStart(_ s: String) -> String { addDays(s, -dayOfWeek(s)) }
 
+    /// The date at local noon (for charts, which bucket in the current time zone).
+    public static func chartDate(_ s: String) -> Date {
+        let p = s.split(separator: "-").compactMap { Int($0) }
+        guard p.count == 3 else { return .now }
+        return Calendar.current.date(from: DateComponents(year: p[0], month: p[1], day: p[2], hour: 12)) ?? .now
+    }
+
     public static let dayShort = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     public static let dayLong = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 

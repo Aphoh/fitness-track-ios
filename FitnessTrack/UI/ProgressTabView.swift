@@ -2,21 +2,28 @@ import Charts
 import SwiftUI
 
 struct ProgressTabView: View {
+    @Environment(StateStore.self) private var store
     @State private var mode = 0
+    @State private var path: [Int] = []
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             Group {
                 if mode == 0 { StatsView() } else { HistoryListView() }
             }
-            .safeAreaInset(edge: .top) {
-                Picker("", selection: $mode) { Text("Stats").tag(0); Text("Exercises").tag(1) }
-                    .pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 6).background(.bar)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("View", selection: $mode) { Text("Stats").tag(0); Text("Exercises").tag(1) }
+                        .pickerStyle(.segmented).frame(width: 220)
+                }
             }
             .navigationTitle("Progress")
+            .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Int.self) { ExerciseHistoryView(exerciseID: $0) }
         }
         .onAppear {
-            if ProcessInfo.processInfo.arguments.contains("-exercisesMode") { mode = 1 }
+            let args = ProcessInfo.processInfo.arguments
+            if args.contains("-exercisesMode") { mode = 1 }
+            if args.contains("-openHistory"), let ex = store.state.exercisesWithHistory.first(where: { !$0.isBodyweight }) { mode = 1; path = [ex.id] }
         }
     }
 }
@@ -64,9 +71,9 @@ struct ExerciseHistoryView: View {
                     }
                     Chart(points) { p in
                         let v = value(p, bw ? .volume : metric)
-                        LineMark(x: .value("Date", LocalDate.parse(p.date) ?? .now, unit: .day), y: .value(metric.rawValue, v))
+                        LineMark(x: .value("Date", LocalDate.chartDate(p.date), unit: .day), y: .value(metric.rawValue, v))
                             .interpolationMethod(.monotone)
-                        PointMark(x: .value("Date", LocalDate.parse(p.date) ?? .now, unit: .day), y: .value(metric.rawValue, v))
+                        PointMark(x: .value("Date", LocalDate.chartDate(p.date), unit: .day), y: .value(metric.rawValue, v))
                     }
                     .chartYScale(domain: .automatic(includesZero: false))
                     .frame(height: 220)
@@ -120,7 +127,7 @@ struct StatsView: View {
             if !s.weeklyVolume.isEmpty {
                 Section("Weekly volume") {
                     Chart(s.weeklyVolume) { w in
-                        BarMark(x: .value("Week", LocalDate.parse(w.key) ?? .now, unit: .weekOfYear), y: .value("Volume", unit.fromKg(w.volume)))
+                        BarMark(x: .value("Week", LocalDate.chartDate(w.key), unit: .weekOfYear), y: .value("Volume", unit.fromKg(w.volume)))
                             .foregroundStyle(Color.accentColor.gradient)
                     }
                     .frame(height: 180)

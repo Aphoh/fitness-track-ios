@@ -5,9 +5,10 @@ struct PlansView: View {
     @State private var showNew = false
     @State private var error: String?
     @State private var cloneSource: Plan?
+    @State private var path: [Int] = []
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 ForEach(store.state.plansSorted) { p in
                     let s = store.state.summary(of: p)
@@ -43,6 +44,9 @@ struct PlansView: View {
             .sheet(isPresented: $showNew) { NewPlanSheet() }
             .sheet(item: $cloneSource) { p in CloneSheet(plan: p) }
             .errorAlert($error)
+            .onAppear {
+                if ProcessInfo.processInfo.arguments.contains("-openPlan"), let p = store.state.activePlan { path = [p.id] }
+            }
             .overlay {
                 if store.state.plans.isEmpty {
                     ContentUnavailableView("No plans", systemImage: "list.bullet.rectangle", description: Text("Tap + to create a workout plan."))

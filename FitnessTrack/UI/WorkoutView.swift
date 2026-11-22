@@ -51,6 +51,12 @@ struct WorkoutView: View {
                 Section {
                     DayStrip(plan: plan, selection: slot) { selection = $0 }
                         .listRowInsets(EdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 0))
+                } header: {
+                    HStack(spacing: 4) {
+                        Text("\(plan.name) · Week \(slot.week) of \(plan.weekCount)")
+                        if let d = session?.date { Text("· \(LocalDate.display(d))") }
+                    }
+                    .textCase(nil)
                 }
                 if info.isCurrent || slot == currentSlot(plan) {
                     DeloadBanner()
@@ -87,17 +93,8 @@ struct WorkoutView: View {
                 }
                 ToolbarItem(placement: .topBarTrailing) { sessionMenu(session) }
             }
-            .safeAreaInset(edge: .top) {
-                HStack {
-                    Text("\(plan.name) · Week \(slot.week) of \(plan.weekCount)")
-                    if let d = session?.date { Text("· \(LocalDate.display(d))") }
-                    Spacer()
-                }
-                .font(.subheadline).foregroundStyle(.secondary)
-                .padding(.horizontal).padding(.bottom, 4)
-                .background(.bar)
-            }
             .task(id: slot) { ensureSession(plan, slot) }
+            .onAppear { if ProcessInfo.processInfo.arguments.contains("-showCalendar") { showCalendar = true } }
             .onChange(of: session.map(slotDone) ?? false) { old, new in
                 if !old && new, let session { recapSessionID = session.id }
             }
@@ -319,7 +316,7 @@ struct SetRow: View {
                 Spacer()
             } else {
                 field(text: $weightText, placeholder: set.weight.map { unit.format($0, withUnit: false) } ?? (isBodyweight ? "BW" : "–"),
-                      suffix: isBodyweight ? "\(unit.rawValue) BW" : unit.rawValue, keyboard: .decimalPad)
+                      suffix: unit.rawValue, keyboard: .decimalPad)
                     .focused($focus, equals: .weight)
                 Text("×").foregroundStyle(.secondary)
                 field(text: $repsText, placeholder: "\(adjustedTarget ?? set.reps)", suffix: "reps", keyboard: .numberPad)

@@ -1,0 +1,1 @@
+[{"args":[100,1],"result":100},{"args":[100,10],"result":133.3},{"args":[60,8],"result":76},{"args":[70,8],"result":88.7},{"args":[60,12],"result":84},{"args":[0,8],"result":null},{"args":[null,8],"result":null},{"args":[80,0],"result":null},{"args":[80,null],"result":null}]

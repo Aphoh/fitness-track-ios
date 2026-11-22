@@ -62,6 +62,13 @@ final class StateFile: NSObject, NSFilePresenter, @unchecked Sendable {
         lock.withLock { lastWritten = data }
     }
 
+    /// An atomic replace by another writer (iCloud Drive, another app) arrives
+    /// as a deletion of the old inode; accept it and re-check the contents.
+    func accommodatePresentedItemDeletion(completionHandler: @escaping (Error?) -> Void) {
+        completionHandler(nil)
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { [weak self] in self?.presentedItemDidChange() }
+    }
+
     func presentedItemDidChange() {
         // Ignore our own writes echoed back.
         let current = try? Data(contentsOf: url)
