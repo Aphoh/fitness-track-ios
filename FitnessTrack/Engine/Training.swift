@@ -224,11 +224,21 @@ extension AppState {
 
     func liveSetCount(session sessionID: Int) -> Int { loggedSets.filter { $0.sessionID == sessionID && $0.isLive }.count }
 
+    /// Logged/skipped sets that count toward the day's schedule: sets of an
+    /// exercise since removed from the day, or beyond its count, don't.
+    func completedSetTotal(session s: WorkoutSession, today: String) -> Int {
+        let date = s.date ?? today
+        return scheduleRows(plan: s.planID, dow: s.sessionDow).reduce(0) { total, row in
+            let count = effectiveSetCount(plan: s.planID, dow: s.sessionDow, exercise: row.exerciseID, date: date, fallback: row.setCount)
+            return total + loggedSets.filter { $0.sessionID == s.id && $0.exerciseID == row.exerciseID && $0.isLive && $0.setNum <= count }.count
+        }
+    }
+
     /// Mark the session complete when the whole day's schedule is logged/skipped.
     mutating func updateCompletion(sessionID: Int, today: String) {
         guard let idx = sessionIndex(sessionID) else { return }
         let expected = expectedSetTotal(session: sessions[idx], today: today)
-        if expected > 0 && liveSetCount(session: sessionID) >= expected {
+        if expected > 0 && completedSetTotal(session: sessions[idx], today: today) >= expected {
             sessions[idx].checkedIn = true
             sessions[idx].unlocked = false
         } else {
@@ -327,7 +337,7 @@ extension AppState {
         guard let sIdx = sessionIndex(sessionID) else { throw EngineError.notFound("Session not found") }
         let s = sessions[sIdx]
         let expected = expectedSetTotal(session: s, today: today)
-        let isDone = s.checkedIn || (expected > 0 && liveSetCount(session: sessionID) >= expected)
+        let isDone = s.checkedIn || (expected > 0 && completedSetTotal(session: s, today: today) >= expected)
         guard isDone else { throw EngineError.invalid("Session is not completed") }
         if let date = s.date {
             let nextDay = LocalDate.addDays(date, 1)
