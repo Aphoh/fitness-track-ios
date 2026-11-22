@@ -48,12 +48,20 @@ struct FTExport: Codable, Equatable {
         guard version == Self.version else { throw EngineError.invalid("Unsupported export version \(version)") }
         let known = Set(exercises.map(\.name)), refs = Set(plans.map(\.ref))
         func need(_ n: String) throws { if !known.contains(n) { throw EngineError.invalid("Export references unknown exercise \"\(n)\"") } }
+        func check(_ ok: Bool, _ what: String) throws { if !ok { throw EngineError.invalid("Export has an invalid \(what)") } }
+        let dow = 0...6
         for p in plans {
+            try check(p.days.allSatisfy(dow.contains), "plan day")
+            try check(p.week_count.map { (1...52).contains($0) } ?? true, "week count")
+            try check(p.schedule.allSatisfy { dow.contains($0.day_of_week) && (1...20).contains($0.set_count) }, "schedule row")
+            try check(p.set_counts.allSatisfy { dow.contains($0.day_of_week) && (1...20).contains($0.set_count) }, "set count")
+            try check(p.set_targets.allSatisfy { $0.set_num >= 1 && $0.reps >= 0 }, "set target")
             for r in p.schedule { try need(r.exercise) }
             for r in p.set_counts { try need(r.exercise) }
             for r in p.set_targets { try need(r.exercise) }
         }
         for s in sessions {
+            try check(dow.contains(s.session_dow) && s.week_num >= 1 && s.sets.allSatisfy { $0.set_num >= 1 }, "session")
             if let r = s.plan_ref, !refs.contains(r) { throw EngineError.invalid("Session references an unknown plan") }
             for l in s.sets { try need(l.exercise) }
         }
