@@ -82,7 +82,9 @@ struct SettingsView: View {
             case .restore:
                 do {
                     let c = try store.restore(from: url)
-                    message = "Restored \(c.plans) plans, \(c.sessions) sessions and \(c.sets) sets."
+                    let text = "Restored \(c.plans) plans, \(c.sessions) sessions and \(c.sets) sets."
+                    // An alert raised while the document picker is still dismissing is dropped.
+                    Task { try? await Task.sleep(for: .milliseconds(600)); message = text }
                 } catch { self.error = error.localizedDescription }
             }
             if let e = store.lastError { error = e }
