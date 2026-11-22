@@ -73,6 +73,8 @@ struct SetTarget: Codable, Identifiable, Hashable, Sendable {
     var weight: Double?
     var reps: Int
     var validFrom: String
+    /// The session whose performance produced this target (nil for seeds, edits, imports).
+    var sessionID: Int? = nil
 }
 
 /// A workout session — identified by position (plan, week, day), not date.

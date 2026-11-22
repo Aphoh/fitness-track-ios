@@ -52,9 +52,10 @@ extension AppState {
     }
 
     /// Latest target for a set valid as of `date` (any date when nil).
-    func targetAsOf(exercise exID: Int, setNum: Int, plan planID: Int?, date: String?) -> SetTarget? {
+    func targetAsOf(exercise exID: Int, setNum: Int, plan planID: Int?, date: String?, excludingSession: Int? = nil) -> SetTarget? {
         var best: SetTarget?
         for t in setTargets where t.exerciseID == exID && t.setNum == setNum && t.planID == planID {
+            if let excludingSession, t.sessionID == excludingSession { continue }
             if let date, t.validFrom > date { continue }
             if let b = best, (b.validFrom, b.id) > (t.validFrom, t.id) { continue }
             best = t
@@ -165,10 +166,11 @@ extension AppState {
         for l in loggedSets(session: session.id, exercise: exID) { loggedBySet[l.setNum] = l }
 
         // Expected targets BEFORE clearing (bounded by nextDay so a same-day
-        // earlier session's output can inform this one).
+        // earlier session's output can inform this one), ignoring this
+        // session's own earlier output so re-logging is idempotent.
         var expected: [Int: SetTarget] = [:]
         if setCount >= 1 {
-            for i in 1...setCount { expected[i] = targetAsOf(exercise: exID, setNum: i, plan: planID, date: nextDay) }
+            for i in 1...setCount { expected[i] = targetAsOf(exercise: exID, setNum: i, plan: planID, date: nextDay, excludingSession: session.id) }
         }
 
         setTargets.removeAll { $0.exerciseID == exID && $0.planID == planID && $0.validFrom == nextDay }
@@ -196,7 +198,7 @@ extension AppState {
             pauseWeight: repsOnly, weightCapKg: weightCap, tempo: tempo))
         for t in next {
             setTargets.append(SetTarget(id: newID(), planID: planID, exerciseID: exID, setNum: t.setNum,
-                                        weight: t.weight, reps: t.reps, validFrom: nextDay))
+                                        weight: t.weight, reps: t.reps, validFrom: nextDay, sessionID: session.id))
         }
 
         // Set-addition escape hatch when no more weight can be added.
@@ -210,7 +212,7 @@ extension AppState {
             if allStuck {
                 recordSetCount(plan: planID, dow: session.sessionDow, exercise: exID, count: setCount + 1, validFrom: nextDay)
                 setTargets.append(SetTarget(id: newID(), planID: planID, exerciseID: exID, setNum: setCount + 1,
-                                            weight: next.last?.weight, reps: repMin, validFrom: nextDay))
+                                            weight: next.last?.weight, reps: repMin, validFrom: nextDay, sessionID: session.id))
             }
         }
     }
