@@ -10,6 +10,7 @@ struct WorkoutView: View {
     @State private var error: String?
 
     struct Slot: Hashable { var week: Int; var dow: Int }
+    struct DoneSessions: Equatable { var planID: Int; var ids: Set<Int> }
 
     var body: some View {
         NavigationStack {
@@ -99,10 +100,10 @@ struct WorkoutView: View {
             }
             .task(id: slot) { ensureSession(plan, slot) }
             .onAppear { if ProcessInfo.processInfo.arguments.contains("-showCalendar") { showCalendar = true } }
-            .onChange(of: doneSessionIDs(plan)) { old, new in
+            .onChange(of: DoneSessions(planID: plan.id, ids: doneSessionIDs(plan))) { old, new in
                 // Logging the last set moves the current slot on; stay on the
-                // finished day and show its recap.
-                if let id = new.subtracting(old).first, let s = store.state.session(id) {
+                // finished day and show its recap. Switching plans isn't a completion.
+                if old.planID == new.planID, let id = new.ids.subtracting(old.ids).first, let s = store.state.session(id) {
                     selection = Slot(week: s.weekNum, dow: s.sessionDow)
                     recapSessionID = id
                 }
