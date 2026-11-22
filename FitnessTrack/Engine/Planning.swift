@@ -145,6 +145,9 @@ extension AppState {
         guard exercise(exID) != nil else { throw EngineError.notFound("Exercise not found") }
         guard (0...6).contains(dow) else { throw EngineError.invalid("Invalid day") }
         guard (1...20).contains(setCount) else { throw EngineError.invalid("Sets must be 1–20") }
+        guard !scheduleRows(plan: planID, dow: dow).contains(where: { $0.exerciseID == exID }) else {
+            throw EngineError.invalid("\(exercise(exID)!.name) is already on this day")
+        }
         let pos = (scheduleRows(plan: planID, dow: dow).map(\.position).max() ?? -1) + 1
         let id = newID()
         schedule.append(ScheduleSlot(id: id, planID: planID, dayOfWeek: dow, exerciseID: exID, setCount: setCount, position: pos))
