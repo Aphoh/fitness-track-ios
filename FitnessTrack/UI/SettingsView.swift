@@ -6,6 +6,8 @@ struct SettingsView: View {
     @AppStorage("unit") private var unit = WeightUnit.kg
     @AppStorage("appearance") private var appearance = Appearance.system
     @State private var picker: PickerKind?
+    /// The kind of the last picker shown; outlives `picker`, which the importer clears before calling back.
+    @State private var pickerKind = PickerKind.restore
     @State private var exportDoc: JSONDoc?
     @State private var message: String?
     @State private var error: String?
@@ -30,8 +32,8 @@ struct SettingsView: View {
                     LabeledContent("Location", value: locationLabel)
                     if let d = store.lastSaved { LabeledContent("Saved", value: d.formatted(date: .omitted, time: .standard)) }
                     if let e = store.lastError { Text(e).foregroundStyle(.red).font(.caption) }
-                    Button { picker = .folder } label: { Label("Move data to a folder…", systemImage: "folder") }
-                    Button { picker = .openFile } label: { Label("Open existing data file…", systemImage: "doc") }
+                    Button { pickerKind = .folder; picker = .folder } label: { Label("Move data to a folder…", systemImage: "folder") }
+                    Button { pickerKind = .openFile; picker = .openFile } label: { Label("Open existing data file…", systemImage: "doc") }
                     if !store.isUsingDefaultLocation {
                         Button { store.useDefaultLocation() } label: { Label("Use On My iPhone", systemImage: "iphone") }
                     }
@@ -40,7 +42,7 @@ struct SettingsView: View {
                 }
                 Section("Backup") {
                     Button { exportDoc = (try? store.exportData()).map(JSONDoc.init) } label: { Label("Export backup…", systemImage: "square.and.arrow.up") }
-                    Button { picker = .restore } label: { Label("Restore from backup…", systemImage: "square.and.arrow.down") }
+                    Button { pickerKind = .restore; picker = .restore } label: { Label("Restore from backup…", systemImage: "square.and.arrow.down") }
                     Button("Reset training history", role: .destructive) { confirmReset = true }
                 }
                 Section {
@@ -50,7 +52,7 @@ struct SettingsView: View {
             }
             .navigationTitle("Settings")
             .fileImporter(isPresented: Binding(get: { picker != nil }, set: { if !$0 { picker = nil } }),
-                          allowedContentTypes: picker == .folder ? [.folder] : [.json],
+                          allowedContentTypes: pickerKind == .folder ? [.folder] : [.json],
                           onCompletion: handlePick)
             .fileExporter(isPresented: Binding(get: { exportDoc != nil }, set: { if !$0 { exportDoc = nil } }), document: exportDoc,
                           contentType: .json, defaultFilename: "fitnesstrack-backup-\(store.today).json") { r in
@@ -70,12 +72,11 @@ struct SettingsView: View {
     }
 
     private func handlePick(_ result: Result<URL, Error>) {
-        let kind = picker
         picker = nil
         switch result {
         case .failure(let e): error = e.localizedDescription
         case .success(let url):
-            switch kind {
+            switch pickerKind {
             case .folder: store.saveToFolder(url)
             case .openFile: store.openExistingFile(url)
             case .restore:
@@ -83,7 +84,6 @@ struct SettingsView: View {
                     let c = try store.restore(from: url)
                     message = "Restored \(c.plans) plans, \(c.sessions) sessions and \(c.sets) sets."
                 } catch { self.error = error.localizedDescription }
-            case nil: break
             }
             if let e = store.lastError { error = e }
         }
