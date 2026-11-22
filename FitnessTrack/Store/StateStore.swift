@@ -19,6 +19,8 @@ final class StateStore {
     @ObservationIgnored private var scopedURL: URL?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let persist: Bool
+    /// False while the current file holds data that couldn't be decoded, so it is never overwritten.
+    @ObservationIgnored private var writable = true
     @ObservationIgnored var todayProvider: () -> String = { LocalDate.today() }
 
     static let bookmarkKey = "stateFileBookmark"
@@ -50,22 +52,34 @@ final class StateStore {
         open(fileURL, seedIfMissing: true)
     }
 
+    /// A store backed by a specific file (tests).
+    init(fileURL: URL, defaults: UserDefaults) {
+        self.defaults = defaults
+        self.persist = true
+        self.state = AppState()
+        self.fileURL = fileURL
+        open(fileURL, seedIfMissing: true)
+    }
+
     // MARK: Mutation
 
     /// Apply a mutation and save. Errors from the engine are returned, not thrown, for UI convenience.
     @discardableResult
     func update<T>(_ body: (inout AppState) throws -> T) -> Result<T, Error> {
+        // Pick up an external edit whose change notification hasn't arrived yet,
+        // so saving this mutation doesn't overwrite it.
+        if let file, file.hasExternalChange() { reloadFromDisk() }
         var copy = state
         do {
             let r = try body(&copy)
-            if copy != state { state = copy; save() }
+            if copy != state { try save(copy); state = copy }
             return .success(r)
         } catch {
             return .failure(error)
         }
     }
 
-    func replaceState(_ new: AppState) { state = new; save() }
+    func replaceState(_ new: AppState) throws { try save(new); state = new }
 
     // MARK: File handling
 
@@ -75,33 +89,66 @@ final class StateStore {
             Task { @MainActor in self?.reloadFromDisk() }
         }
         file = f
+        writable = true
         do {
             if let data = try f.read() {
                 state = try Self.decode(data)
                 lastError = nil
             } else if seedIfMissing {
-                state = AppState.seeded(today: today)
-                save()
+                saveOrReport(AppState.seeded(today: today))
             }
         } catch {
-            lastError = "Couldn't read \(url.lastPathComponent): \(error.localizedDescription)"
+            writable = false
+            lastError = Self.unreadable(url, error)
         }
     }
 
     func reloadFromDisk() {
-        guard let file, let data = try? file.read(), let s = try? Self.decode(data) else { return }
-        if s != state { state = s }
+        guard let file, let data = try? file.read() else { return }
+        do {
+            let s = try Self.decode(data)
+            writable = true
+            lastError = nil
+            if s != state { state = s }
+        } catch {
+            writable = false
+            lastError = Self.unreadable(fileURL, error)
+        }
     }
 
-    private func save() {
+    private static func unreadable(_ url: URL, _ error: Error) -> String {
+        "Couldn't read \(url.lastPathComponent), so changes aren't saved to it: \(error.localizedDescription)"
+    }
+
+    private func save(_ new: AppState) throws {
         guard persist, let file else { return }
+        guard writable else { throw EngineError.invalid(lastError ?? Self.unreadable(fileURL, EngineError.invalid("unreadable data"))) }
         do {
-            try file.write(try StateFile.encoder.encode(state))
+            try file.write(try StateFile.encoder.encode(new))
             lastSaved = Date()
             lastError = nil
         } catch {
             lastError = "Couldn't save: \(error.localizedDescription)"
+            throw error
         }
+    }
+
+    /// Save outside a user mutation (seeding, relocating); failures surface via `lastError`.
+    private func saveOrReport(_ new: AppState) {
+        state = new
+        try? save(new)
+    }
+
+    /// Coordinated read of a file the app may not be presenting; nil when it doesn't exist.
+    private static func coordinatedRead(_ url: URL) throws -> Data? {
+        var coordError: NSError?
+        var result: Result<Data?, Error> = .success(nil)
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { u in
+            guard FileManager.default.fileExists(atPath: u.path) else { return }
+            result = Result { try Data(contentsOf: u) }
+        }
+        if let coordError { throw coordError }
+        return try result.get()
     }
 
     static func decode(_ data: Data) throws -> AppState {
@@ -118,6 +165,15 @@ final class StateStore {
 
     /// Use an existing state file (e.g. one already in iCloud Drive) — replaces the in-memory state with its contents.
     func openExistingFile(_ url: URL) {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        do {
+            guard let data = try Self.coordinatedRead(url) else { throw EngineError.notFound("The file doesn't exist") }
+            _ = try Self.decode(data)
+        } catch {
+            lastError = "\(url.lastPathComponent) isn't a FitnessTrack data file, so it wasn't opened: \(error.localizedDescription)"
+            return
+        }
         adopt(url)
         open(url, seedIfMissing: false)
     }
@@ -132,6 +188,14 @@ final class StateStore {
 
     private func adoptFolderTarget(folder: URL, target: URL) {
         let current = state
+        let existing: AppState?
+        do {
+            existing = try Self.coordinatedRead(target).map(Self.decode)
+        } catch {
+            if scopedURL != folder { folder.stopAccessingSecurityScopedResource() }
+            lastError = "\(folder.lastPathComponent) already has a \(Self.defaultFileName) that couldn't be read, so it was left untouched: \(error.localizedDescription)"
+            return
+        }
         // Bookmark the folder's file; the folder scope keeps access for the file.
         if let bm = try? folder.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
             defaults.set(bm, forKey: Self.bookmarkKey + ".folder")
@@ -142,11 +206,13 @@ final class StateStore {
         file?.close()
         file = StateFile(url: target) { [weak self] in Task { @MainActor in self?.reloadFromDisk() } }
         defaults.removeObject(forKey: Self.bookmarkKey)
-        if let existing = try? file?.read(), let s = try? Self.decode(existing) {
-            state = s   // a state file already lives there — use it
+        writable = true
+        if let existing {
+            _ = try? file?.read()   // registers the presenter's baseline
+            state = existing        // a state file already lives there — use it
+            lastError = nil
         } else {
-            state = current
-            save()
+            saveOrReport(current)
         }
     }
 
@@ -169,8 +235,8 @@ final class StateStore {
         defaults.removeObject(forKey: Self.bookmarkKey + ".folder")
         fileURL = Self.defaultFileURL
         open(fileURL, seedIfMissing: false)
-        state = current
-        save()
+        writable = true   // the user chose to put the current data here
+        saveOrReport(current)
     }
 
     private static func resolveBookmark(_ defaults: UserDefaults) -> URL? {
@@ -200,13 +266,10 @@ final class StateStore {
     func restore(from url: URL) throws -> AppState.ImportCounts {
         let scoped = url.startAccessingSecurityScopedResource()
         defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        var err: NSError?
-        var data: Data?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &err) { data = try? Data(contentsOf: $0) }
-        guard let data else { throw err ?? EngineError.invalid("Couldn't read the file") }
+        guard let data = try Self.coordinatedRead(url) else { throw EngineError.invalid("Couldn't read the file") }
         let dec = JSONDecoder()
         if let s = try? dec.decode(AppState.self, from: data), s.format == AppState.format {
-            replaceState(s)
+            try replaceState(s)
             return .init(plans: s.plans.count, sessions: s.sessions.count, sets: s.loggedSets.count, createdExercises: 0)
         }
         let ft: FTExport

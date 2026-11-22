@@ -62,6 +62,12 @@ final class StateFile: NSObject, NSFilePresenter, @unchecked Sendable {
         lock.withLock { lastWritten = data }
     }
 
+    /// True when the file on disk differs from what this app last read or wrote.
+    func hasExternalChange() -> Bool {
+        guard let current = try? Data(contentsOf: url) else { return false }
+        return lock.withLock { current != lastWritten }
+    }
+
     /// An atomic replace by another writer (iCloud Drive, another app) arrives
     /// as a deletion of the old inode; accept it and re-check the contents.
     func accommodatePresentedItemDeletion(completionHandler: @escaping (Error?) -> Void) {
