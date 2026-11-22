@@ -20,6 +20,8 @@ targets:
       path: FitnessTrack/Resources/Info.plist
       properties:
         CFBundleDisplayName: FitnessTrack
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         UILaunchScreen: {}
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
