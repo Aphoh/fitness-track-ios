@@ -100,6 +100,7 @@ struct WorkoutView: View {
             }
             .task(id: slot) { ensureSession(plan, slot) }
             .onAppear { if ProcessInfo.processInfo.arguments.contains("-showCalendar") { showCalendar = true } }
+            .onChange(of: plan.id) { _, _ in selection = nil }
             .onChange(of: DoneSessions(planID: plan.id, ids: doneSessionIDs(plan))) { old, new in
                 // Logging the last set moves the current slot on; stay on the
                 // finished day and show its recap. Switching plans isn't a completion.
