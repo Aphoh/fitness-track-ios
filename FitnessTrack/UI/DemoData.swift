@@ -33,6 +33,17 @@ enum DemoData {
                 }
             }
         }
+        // Part-way through today's session, so the logging screen shows feedback.
+        if let cur = s.currentSlot(plan: s.plans.first { $0.isActive }!),
+           let sid = try? s.openSlot(plan: plan.id, week: cur.week, dow: cur.dow).sessionID {
+            let cards = s.workoutView(plan: plan.id, dow: cur.dow, week: cur.week)
+            for (ci, card) in cards.prefix(2).enumerated() {
+                for set in card.sets where ci == 0 || set.setNum == 1 {
+                    try? s.logSet(session: sid, exercise: card.exercise.id, setNum: set.setNum, repsDone: set.reps + (set.setNum == 2 ? -1 : 1),
+                                  weightUsed: set.weight ?? defaults[card.exercise.equipment] ?? 20, today: today)
+                }
+            }
+        }
         return s
     }
 }
