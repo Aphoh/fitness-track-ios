@@ -31,7 +31,11 @@ struct WorkoutView: View {
 
     private var title: String {
         guard let s = resolvedSlot else { return "Workout" }
-        return LocalDate.dayLong[s.dow]
+        return LocalDate.dayLong.indices.contains(s.dow) ? LocalDate.dayLong[s.dow] : "Workout"
+    }
+
+    private func doneSessionIDs(_ plan: Plan) -> Set<Int> {
+        Set(store.state.sessions.filter { $0.planID == plan.id && slotDone($0) }.map(\.id))
     }
 
     private var resolvedSlot: Slot? {
@@ -95,8 +99,13 @@ struct WorkoutView: View {
             }
             .task(id: slot) { ensureSession(plan, slot) }
             .onAppear { if ProcessInfo.processInfo.arguments.contains("-showCalendar") { showCalendar = true } }
-            .onChange(of: session.map(slotDone) ?? false) { old, new in
-                if !old && new, let session { recapSessionID = session.id }
+            .onChange(of: doneSessionIDs(plan)) { old, new in
+                // Logging the last set moves the current slot on; stay on the
+                // finished day and show its recap.
+                if let id = new.subtracting(old).first, let s = store.state.session(id) {
+                    selection = Slot(week: s.weekNum, dow: s.sessionDow)
+                    recapSessionID = id
+                }
             }
             .sheet(isPresented: $showCalendar) {
                 NavigationStack {
