@@ -23,6 +23,7 @@ extension AppState {
             guard let ex = s.exercises.first(where: { $0.name == slot.name }) else { continue }
             let p = pos[slot.day, default: 0]; pos[slot.day] = p + 1
             s.schedule.append(ScheduleSlot(id: s.newID(), planID: pid, dayOfWeek: slot.day, exerciseID: ex.id, setCount: slot.sets, position: p))
+            s.recordSetCount(plan: pid, dow: slot.day, exercise: ex.id, count: slot.sets, validFrom: baselineDate)
             if let w = slot.weight {
                 for i in 1...slot.sets {
                     s.setTargets.append(SetTarget(id: s.newID(), planID: pid, exerciseID: ex.id, setNum: i, weight: w, reps: slot.reps, validFrom: today))
