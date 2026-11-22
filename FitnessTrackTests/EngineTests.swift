@@ -193,6 +193,47 @@ struct SetCountAndProgressionTests {
         #expect(s.workoutView(plan: pid, dow: 0, week: 2)[0].sets.count == 3)
     }
 
+    @Test func reloggingTheSamePerformanceKeepsTheSameTargets() throws {
+        var s = fresh()
+        let pid = try makePlan(&s, [("Barbell Curl", 0, 1)])
+        let curl = ex(s, "Barbell Curl")
+        let rows = targets(s, pid, curl)
+        #expect(rows.isEmpty)
+        let sid = try slot(&s, pid, week: 1, dow: 0)
+        try logAll(&s, sid, curl, [(10, 30)])
+        let first = targets(s, pid, curl).map { [$0.weight, Double($0.reps)] }
+        for _ in 0..<3 {
+            try s.logSet(session: sid, exercise: curl, setNum: 1, repsDone: 10, weightUsed: 30, today: T0)
+            #expect(targets(s, pid, curl).map { [$0.weight, Double($0.reps)] } == first)
+        }
+    }
+
+    @Test func removedExerciseLogsDontCompleteTheDay() throws {
+        var s = fresh()
+        let pid = try makePlan(&s, [("Bench Press", 0, 2), ("Squat", 0, 2)])
+        let bench = ex(s, "Bench Press"), squat = ex(s, "Squat")
+        try s.addToSchedule(plan: pid, dow: 0, exercise: ex(s, "Deadlift"), setCount: 1)
+        let sid = try slot(&s, pid, week: 1, dow: 0)
+        try logAll(&s, sid, bench, [(7, 60), (7, 60)])
+        s.removeFromSchedule(s.slots(plan: pid).first { $0.exerciseID == bench }!.id)
+        try s.logSet(session: sid, exercise: squat, setNum: 1, repsDone: 8, weightUsed: 80, today: T0)
+        #expect(s.session(sid)?.checkedIn == false, "Squat set 2 and Deadlift are still missing")
+    }
+
+    @Test func sameExerciseCanOnlyBeAddedOncePerDay() throws {
+        var s = fresh()
+        let pid = try makePlan(&s, [("Bench Press", 0, 2)])
+        #expect(throws: EngineError.self) { try s.addToSchedule(plan: pid, dow: 0, exercise: ex(s, "Bench Press")) }
+    }
+
+    @Test func seededSamplePlanHasBaselineSetCounts() throws {
+        let s = AppState.seeded(today: T0)
+        let pid = try #require(s.plans.first?.id)
+        for slot in s.slots(plan: pid) {
+            #expect(s.setCounts.contains { $0.planID == pid && $0.dayOfWeek == slot.dayOfWeek && $0.exerciseID == slot.exerciseID && $0.validFrom == AppState.baselineDate })
+        }
+    }
+
     @Test func bodyweightAddsASetWhenEverySetHitsCeiling() throws {
         var s = fresh()
         let pid = try makePlan(&s, [("Pull-up", 0, 2)])   // 5–12
@@ -292,7 +333,9 @@ struct TransferTests {
         var badVersion = good; badVersion.version = 99
         var badRef = good; badRef.sessions[0].sets[0].exercise = "No Such Exercise"
         var badPlan = good; badPlan.sessions[0].plan_ref = 9999
-        for bad in [badFormat, badVersion, badRef, badPlan] {
+        var badDay = good; badDay.plans[0].days = [7]
+        var badDow = good; badDow.sessions[0].session_dow = -1
+        for bad in [badFormat, badVersion, badRef, badPlan, badDay, badDow] {
             #expect(throws: EngineError.self) { try a.importFT(bad, today: T0) }
             #expect(a == before)
         }
@@ -362,4 +405,60 @@ private final class Changed: @unchecked Sendable {
     private var flag = false
     var value: Bool { lock.withLock { flag } }
     func fire() { lock.withLock { flag = true } }
+}
+
+@MainActor
+struct StateStoreTests {
+    private func tempFile() -> URL {
+        FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).appendingPathComponent("FitnessTrack.json")
+    }
+    private func defaults() -> UserDefaults { UserDefaults(suiteName: UUID().uuidString)! }
+
+    @Test func unreadableFileIsNeverOverwritten() throws {
+        let url = tempFile()
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let junk = Data("{\"not\": \"fitnesstrack\"}".utf8)
+        try junk.write(to: url)
+        let store = StateStore(fileURL: url, defaults: defaults())
+        #expect(store.lastError != nil)
+        let r = store.update { try $0.createPlan(name: "X", days: [0], today: T0) }
+        #expect(throws: (any Error).self) { try r.get() }
+        #expect(try Data(contentsOf: url) == junk)
+    }
+
+    @Test func openingAnInvalidFileKeepsTheCurrentOne() throws {
+        let url = tempFile()
+        let store = StateStore(fileURL: url, defaults: defaults())
+        let other = url.deletingLastPathComponent().appendingPathComponent("other.json")
+        let junk = Data("[1,2,3]".utf8)
+        try junk.write(to: other)
+        store.openExistingFile(other)
+        #expect(store.fileURL == url)
+        #expect(store.lastError != nil)
+        _ = store.update { try $0.createPlan(name: "X", days: [0], today: T0) }
+        #expect(try Data(contentsOf: other) == junk)
+    }
+
+    @Test func failedSaveReportsFailureAndKeepsState() throws {
+        let url = tempFile()
+        let store = StateStore(fileURL: url, defaults: defaults())
+        let before = store.state
+        // Replace the containing folder with a file so the write fails.
+        try FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        try Data().write(to: url.deletingLastPathComponent())
+        let r = store.update { try $0.createPlan(name: "X", days: [0], today: T0) }
+        #expect(throws: (any Error).self) { try r.get() }
+        #expect(store.state == before)
+    }
+
+    @Test func mutationAfterUnnoticedExternalEditKeepsIt() throws {
+        let url = tempFile()
+        let store = StateStore(fileURL: url, defaults: defaults())
+        var external = store.state
+        _ = try external.createPlan(name: "From another device", days: [0], today: T0)
+        try StateFile.encoder.encode(external).write(to: url, options: .atomic)
+        _ = try store.update { try $0.createPlan(name: "Local", days: [1], today: T0) }.get()
+        let onDisk = try StateStore.decode(Data(contentsOf: url))
+        #expect(Set(onDisk.plans.map(\.name)).isSuperset(of: ["From another device", "Local"]))
+    }
 }
