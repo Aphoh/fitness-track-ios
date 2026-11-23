@@ -23,7 +23,23 @@
         "entitlements": [],
         "privacy": {}
       },
-      "versions": []
+      "versions": [
+        {
+          "version": "1.0.0",
+          "buildVersion": "23",
+          "date": "2026-11-23",
+          "localizedDescription": "FitnessTrack 1.0.0. See the GitHub release notes for what changed.",
+          "downloadURL": "https://github.com/Aphoh/fitness-track-ios/releases/download/v1.0.0/FitnessTrack-ios-unsigned-v1.0.0.ipa",
+          "size": 1430725,
+          "minOSVersion": "17.0"
+        }
+      ],
+      "version": "1.0.0",
+      "buildVersion": "23",
+      "versionDate": "2026-11-23",
+      "versionDescription": "FitnessTrack 1.0.0. See the GitHub release notes for what changed.",
+      "downloadURL": "https://github.com/Aphoh/fitness-track-ios/releases/download/v1.0.0/FitnessTrack-ios-unsigned-v1.0.0.ipa",
+      "size": 1430725
     }
   ],
   "news": []
