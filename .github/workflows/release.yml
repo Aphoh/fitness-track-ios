@@ -1,0 +1,113 @@
+# Builds the unsigned sideload .ipa for a release, attaches it to the GitHub release, then adds
+# the version to altstore-source.json on main so AltStore / SideStore users are offered it.
+#
+# Triggers: pushing a v* tag (the release is created if it doesn't exist), publishing a release
+# in the GitHub UI, or running it manually for an existing tag.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build, e.g. v1.0.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    name: Build and attach .ipa
+    runs-on: macos-26
+    timeout-minutes: 40
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.v.outputs.tag }}
+      ver: ${{ steps.v.outputs.ver }}
+      build: ${{ steps.b.outputs.build }}
+      ipa: ${{ steps.v.outputs.ipa }}
+    steps:
+      - id: v
+        env:
+          TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+          VER="${TAG#v}"
+          [[ "$VER" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || {
+            echo "::error::tag '$TAG' must look like v1.2.3 (iOS versions are numeric)"; exit 1; }
+          { echo "tag=$TAG"; echo "ver=$VER"; echo "ipa=FitnessTrack-ios-unsigned-v${VER}.ipa"; } >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ steps.v.outputs.tag }}
+          fetch-depth: 0
+      - run: xcodebuild -version
+      - id: b
+        name: Build unsigned Release .ipa
+        run: |
+          set -euo pipefail
+          BUILD=$(git rev-list --count HEAD)
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
+          tools/build-ipa.sh "${{ steps.v.outputs.ver }}" "$BUILD"
+          unzip -l "${{ steps.v.outputs.ipa }}" | grep -q ' Payload/FitnessTrack.app/Info.plist$'
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          VER: ${{ steps.v.outputs.ver }}
+          IPA: ${{ steps.v.outputs.ipa }}
+        run: |
+          set -euo pipefail
+          R="--repo $GITHUB_REPOSITORY"
+          gh release view "$TAG" $R >/dev/null 2>&1 \
+            || gh release create "$TAG" $R --verify-tag --title "FitnessTrack $VER" --generate-notes \
+            || gh release view "$TAG" $R >/dev/null
+          gh release upload "$TAG" "$IPA" $R --clobber
+
+  altstore:
+    name: Update AltStore source
+    needs: ios
+    runs-on: ubuntu-latest
+    # Best-effort: never fail the release over the source manifest.
+    continue-on-error: true
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Prepend this version to altstore-source.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.ios.outputs.tag }}
+          VER: ${{ needs.ios.outputs.ver }}
+          BUILD: ${{ needs.ios.outputs.build }}
+          IPA: ${{ needs.ios.outputs.ipa }}
+        run: |
+          set -euo pipefail
+          if [ ! -f altstore-source.json ] || [ ! -x tools/update-altstore-source.sh ]; then
+            echo "::warning::altstore-source.json or tools/update-altstore-source.sh missing on main; skipping."; exit 0
+          fi
+          SIZE=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq ".assets[] | select(.name == \"$IPA\") | .size" || true)
+          if [ -z "$SIZE" ]; then
+            echo "::warning::$IPA not found on release $TAG; skipping."; exit 0
+          fi
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${IPA}"
+          tools/update-altstore-source.sh "$VER" "$BUILD" "$URL" "$SIZE"
+          if git diff --quiet altstore-source.json; then
+            echo "altstore-source.json already lists $VER."; exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add altstore-source.json
+          git commit -m "AltStore source: add FitnessTrack $VER"
+          git push origin HEAD:main || echo "::warning::couldn't push to main (branch protection or main moved); add the $VER entry with tools/update-altstore-source.sh."

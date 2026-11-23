@@ -1,0 +1,30 @@
+{
+  "name": "FitnessTrack",
+  "identifier": "com.aphoh.fitnesstrack.source",
+  "sourceURL": "https://raw.githubusercontent.com/Aphoh/fitness-track-ios/main/altstore-source.json",
+  "subtitle": "Progressive-overload strength tracker for iPhone.",
+  "description": "AltStore / SideStore source for the native iOS port of FitnessTrack. Add it once to get updates for the sideloaded app.",
+  "iconURL": "https://raw.githubusercontent.com/Aphoh/fitness-track-ios/main/FitnessTrack/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+  "website": "https://github.com/Aphoh/fitness-track-ios",
+  "tintColor": "EA803C",
+  "apps": [
+    {
+      "name": "FitnessTrack",
+      "bundleIdentifier": "com.aphoh.fitnesstrack",
+      "developerName": "Aphoh",
+      "subtitle": "Dynamic double progression, adaptive tempo and deloads.",
+      "localizedDescription": "A native SwiftUI port of FitnessTrack by Giuliano Maciocci: plans, fast set logging, per-set progression, adaptive tempo, deload suggestions, calendar, history charts and stats. Single-user and local-first: all data lives in one JSON file you can keep in iCloud Drive.\n\nSource: https://github.com/Aphoh/fitness-track-ios",
+      "iconURL": "https://raw.githubusercontent.com/Aphoh/fitness-track-ios/main/FitnessTrack/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png",
+      "tintColor": "EA803C",
+      "category": "lifestyle",
+      "minOSVersion": "17.0",
+      "screenshotURLs": [],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {}
+      },
+      "versions": []
+    }
+  ],
+  "news": []
+}

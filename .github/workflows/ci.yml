@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Unit tests (iOS Simulator)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - run: xcodebuild -version
+      - name: Run tests
+        run: |
+          set -euo pipefail
+          # Newest available iOS runtime, first iPhone on it.
+          UDID=$(xcrun simctl list devices available -j | jq -r '
+            [.devices | to_entries[]
+              | select(.key | test("SimRuntime\\.iOS-"))
+              | {v: (.key | capture("iOS-(?<a>[0-9]+)-(?<b>[0-9]+)") | [(.a|tonumber), (.b|tonumber)]),
+                 d: [.value[] | select(.name | startswith("iPhone"))]}
+              | select(.d | length > 0)]
+            | sort_by(.v) | last | .d[0].udid')
+          [ -n "$UDID" ] && [ "$UDID" != null ] || { echo "::error::no iPhone simulator available"; exit 1; }
+          xcrun simctl list devices | grep "$UDID"
+          xcodebuild -project FitnessTrack.xcodeproj -scheme FitnessTrack \
+            -destination "id=$UDID" test
+
+  device-build:
+    name: Unsigned device build (.ipa)
+    runs-on: macos-26
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: xcodebuild -version
+      - name: Build and package
+        run: |
+          set -euo pipefail
+          VER=$(sed -nE 's/^ *MARKETING_VERSION: *"?([0-9.]+)"?.*/\1/p' project.yml | head -1)
+          tools/build-ipa.sh "$VER" "$(git rev-list --count HEAD)"
+          IPA=$(ls FitnessTrack-ios-unsigned-v*.ipa)
+          unzip -l "$IPA" | grep -q ' Payload/FitnessTrack.app/Info.plist$'
+          unzip -l "$IPA" | grep -q ' Payload/FitnessTrack.app/FitnessTrack$'
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IPA }}
+          path: ${{ env.IPA }}
+          retention-days: 7
+          if-no-files-found: error
